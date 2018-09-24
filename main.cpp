@@ -2,40 +2,60 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <arpa/inet.h>
+#include <netinet/if_ether.h>
 
 struct ethernet{
-	char destination_address[6];
-	char source_address[6];
-	char ethernet_type[2];
+	uint8_t destination_address[ETHER_ADDR_LEN];
+	uint8_t source_address[ETHER_ADDR_LEN];
+	uint16_t ethernet_type;
 };
 struct ip{
-	char version_IHL[1];
-	char tos[1];
-	char total_length[2];
-	char identification[2];
-	char flags_fragmentoffset[2];
-	char ttl[1];
-	char protocol[1];
-	char headerchecksum[2];
-	char source_address[4];
-	char destination_address[4];
+	uint8_t ip_hl:4, ip_v:4;
+	uint8_t ip_tos;
+	uint16_t ip_len;
+	uint16_t ip_id;
+	uint16_t ip_off;
+	uint8_t ip_ttl;
+	uint8_t ip_p;
+	uint16_t ip_sum;
+	uint32_t ip_src;
+	uint32_t ip_dst;
 };
 struct tcp{
-	char source_port[2];
-	char destination_port[2];
-	char sequence_number[4];
-	char acknowledgment_number[4];
-	char header_length_reserved_codebits[2];
-	char window[2];
-	char checksum[2];
-	char urgent[2];
+	uint16_t tcp_sport;
+	uint16_t tcp_dport;
+	uint32_t tcp_seq;
+	uint32_t tcp_ack;
+	uint8_t tcp_x2:4, tcp_off:4;
+	uint8_t tcp_flags;
+	uint16_t tcp_win;
+	uint16_t tcp_sum;
+	uint16_t tcp_urp;
 };
-void dump(u_char * p, int len){
-	for(int i=0;i<len;i++){
-		printf("%02x ",*p);
-		p++;
-		if((i&0x0f)==0x0f)
-			printf("\n");
+
+void print_mac(char * str,uint8_t * addr){
+	int i;
+	printf("%s: ",str);
+	for(i=0;i<ETHER_ADDR_LEN-1;i++)printf("%02x:",(u_char)*(addr+i));
+	printf("%02x\n",(u_char)*(addr+i));
+}
+void print_ip(char * str, uint32_t ip){
+	int i;
+	printf("%s: ",str);
+	for(i=sizeof(ip)-1;i>0;i--)printf("%d.",(ip>>(i*8))&0xff);
+	printf("%d\n",ip&0xff);
+}
+void print_port(char * str, uint16_t port){
+	printf("%s: %d\n",str,port);
+}
+void print_data(char * data_addr, unsigned int len=32){
+	int i;
+	if(len)printf("\nData:\n");
+	for(i=0;i<len;i++){
+		printf("%02x ",(u_char)*(data_addr+i));
+		if((i&0xf)==0xf)printf("\n");
 	}
 }
 
@@ -44,70 +64,30 @@ void dump2(char * p, int len){
 	struct ethernet a;
 	struct ethernet * a_ptr=&a;
 	a_ptr=(struct ethernet *)p;
-	printf("dst mac: ");
-	for(i=0;i<sizeof(a.destination_address)-1;i++)printf("%02x:", (u_char)*(a_ptr->destination_address+i));
-	printf("%02x\n",(u_char)*(a_ptr->destination_address+i));
-	printf("src mac: ");
-	for(i=0;i<sizeof(a.source_address)-1;i++)printf("%02x:",(u_char)*(a_ptr->source_address+i));
-	printf("%02x\n",(u_char)*(a_ptr->source_address+i));
-	if(*(a_ptr->ethernet_type)==8&&*(a_ptr->ethernet_type+1)==0){
+	print_mac("dst mac",a_ptr->destination_address);
+	print_mac("src mac",a_ptr->source_address);
+	if(htons(a_ptr->ethernet_type)==ETHERTYPE_IP){
 		printf("\nipv4\n");
-		struct ip b;
-		struct ip * b_ptr=&b;
-		b_ptr=(struct ip *)(p+sizeof(a));
-		printf("dst ip: ");
-		for(i=0;i<sizeof(b.destination_address)-1;i++)printf("%d.", (u_char)*(b_ptr->destination_address+i));
-		printf("%d\n",(u_char)*(b_ptr->destination_address+i));
-		printf("src ip: ");
-		for(i=0;i<sizeof(b.source_address)-1;i++)printf("%d.",(u_char)*(b_ptr->source_address+i));
-		printf("%d\n",(u_char)*(b_ptr->source_address+i));
-		unsigned char m=b_ptr->version_IHL[0];
-		m&=0xf;
-		m*=4;
-		if(*(b_ptr->protocol)==6){
+		struct ip a;
+		struct ip * a_ptr=&a;
+		a_ptr=(struct ip *)(p+sizeof(struct ethernet));
+		print_ip("dst ip",htonl(a_ptr->ip_dst));
+		print_ip("src ip",htonl(a_ptr->ip_src));
+		unsigned int ip_hlen=(a_ptr->ip_hl)*4;
+		unsigned int ip_tlen=a_ptr->ip_len;
+		if((a_ptr->ip_p)==IPPROTO_TCP){
 			printf("\nTCP\n");
-			struct tcp c;
-			struct tcp * c_ptr=&c;
-			c_ptr=(struct tcp *)(p+sizeof(a)+m);
-			printf("src port: ");
-			printf("%d\n",((u_char)*(c_ptr->source_port))*256+(u_char)*(c_ptr->source_port+1));
-			printf("dst port: ");
-			printf("%d\n",((u_char)*(c_ptr->destination_port))*256+(u_char)*(c_ptr->destination_port+1));
-			unsigned char n=c_ptr->header_length_reserved_codebits[0];
-			n=n>>4;
-			n*=4;
-			if(sizeof(a)+m+n!=len){
-				printf("\nData:\n");
-				for(i=0;i<32;i++){
-					if(i+sizeof(a)+m+n==len)break;
-					printf("%02x ",(u_char)*(p+sizeof(a)+m+n+i));
-					if((i&0xf)==0xf)printf("\n");
-				}
-			}
-			printf("\n=========================================================\n");
-			return;
-		}
-		if(sizeof(a)+m!=len){
-			printf("\nData:\n");
-			for(i=0;i<32;i++){
-				if(i+sizeof(a)+m==len)break;
-            	printf("%02x ",(u_char)*(p+sizeof(a)+m+i));                 
-            	if((i&0xf)==0xf)printf("\n");
-        	}
-		}
-        printf("\n=========================================================\n");
-        return;
-	}
-	if(sizeof(a)!=len){
-		printf("\nData:\n");
-		for(i=0;i<32;i++){
-			if(i+sizeof(a)==len)break;
-			printf("%02x ",(u_char)*(p+sizeof(a)+i));
-			if((i&0xf)==0xf)printf("\n");
+			struct tcp a;
+			struct tcp * a_ptr=&a;
+			a_ptr=(struct tcp *)(p+sizeof(struct ethernet)+ip_hlen);
+			print_port("src port", htons(a_ptr->tcp_sport));
+			print_port("dst port",htons(a_ptr->tcp_dport));
+			unsigned int tcp_hlen=(a_ptr->tcp_off)*4;
+			unsigned int data_len=(htons(ip_tlen)-(ip_hlen+tcp_hlen));
+			data_len>32?print_data(p+sizeof(struct ethernet)+ip_hlen+tcp_hlen):print_data(p+sizeof(struct ethernet)+ip_hlen+tcp_hlen,data_len);
 		}
 	}
 	printf("\n=========================================================\n");
-	return;
 }
 
 
@@ -125,6 +105,7 @@ int main(int argc, char* argv[]) {
   char* dev = argv[1];
   char errbuf[PCAP_ERRBUF_SIZE];
   pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+  //pcap_t* handle=pcap_open_offline("./tcp-port-80-test.gilgil.pcap",errbuf);
   if (handle == NULL) {
     fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
     return -1;
