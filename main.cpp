@@ -66,13 +66,13 @@ void dump2(char * p, int len){
 	a_ptr=(struct ethernet *)p;
 	print_mac("dst mac",a_ptr->destination_address);
 	print_mac("src mac",a_ptr->source_address);
-	if(htons(a_ptr->ethernet_type)==ETHERTYPE_IP){
+	if(ntohs(a_ptr->ethernet_type)==ETHERTYPE_IP){
 		printf("\nipv4\n");
 		struct ip a;
 		struct ip * a_ptr=&a;
 		a_ptr=(struct ip *)(p+sizeof(struct ethernet));
-		print_ip("dst ip",htonl(a_ptr->ip_dst));
-		print_ip("src ip",htonl(a_ptr->ip_src));
+		print_ip("dst ip",ntohl(a_ptr->ip_dst));
+		print_ip("src ip",ntohl(a_ptr->ip_src));
 		unsigned int ip_hlen=(a_ptr->ip_hl)*4;
 		unsigned int ip_tlen=a_ptr->ip_len;
 		if((a_ptr->ip_p)==IPPROTO_TCP){
@@ -80,10 +80,10 @@ void dump2(char * p, int len){
 			struct tcp a;
 			struct tcp * a_ptr=&a;
 			a_ptr=(struct tcp *)(p+sizeof(struct ethernet)+ip_hlen);
-			print_port("src port", htons(a_ptr->tcp_sport));
-			print_port("dst port",htons(a_ptr->tcp_dport));
+			print_port("src port", ntohs(a_ptr->tcp_sport));
+			print_port("dst port",ntohs(a_ptr->tcp_dport));
 			unsigned int tcp_hlen=(a_ptr->tcp_off)*4;
-			unsigned int data_len=(htons(ip_tlen)-(ip_hlen+tcp_hlen));
+			unsigned int data_len=(ntohs(ip_tlen)-(ip_hlen+tcp_hlen));
 			data_len>32?print_data(p+sizeof(struct ethernet)+ip_hlen+tcp_hlen):print_data(p+sizeof(struct ethernet)+ip_hlen+tcp_hlen,data_len);
 		}
 	}
